@@ -27,6 +27,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
@@ -118,6 +119,7 @@ fun AttendanceScreen(viewModel: AttendanceViewModel = viewModel()) {
     val currentGroupName by viewModel.currentGroupName.collectAsState()
     val students by viewModel.students.collectAsState()
     val selectedDate by viewModel.selectedDate.collectAsState()
+    val sortType by viewModel.sortType.collectAsState()
     
     var newStudentName by remember { mutableStateOf("") }
     var showDatePicker by remember { mutableStateOf(false) }
@@ -125,6 +127,7 @@ fun AttendanceScreen(viewModel: AttendanceViewModel = viewModel()) {
     var showAddGroupDialog by remember { mutableStateOf(false) }
     var showEasterEgg by remember { mutableStateOf(false) }
     var showStatsDialog by remember { mutableStateOf(false) }
+    var showSortMenu by remember { mutableStateOf(false) }
     var statsMonth by remember { mutableIntStateOf(selectedDate.monthValue) }
     var statsYear by remember { mutableIntStateOf(selectedDate.year) }
     
@@ -175,7 +178,7 @@ fun AttendanceScreen(viewModel: AttendanceViewModel = viewModel()) {
                             Icon(Icons.Default.ArrowDropDown, contentDescription = null)
                         }
                         Text(
-                            text = selectedDate.format(DateTimeFormatter.ofPattern("dd MMMM yyyy")),
+                            text = selectedDate.format(DateTimeFormatter.ofPattern("EEEE, dd MMMM yyyy", java.util.Locale("ru"))).replaceFirstChar { it.uppercase() },
                             style = MaterialTheme.typography.labelMedium
                         )
                     }
@@ -192,6 +195,30 @@ fun AttendanceScreen(viewModel: AttendanceViewModel = viewModel()) {
                         showStatsDialog = true 
                     }) {
                         Icon(Icons.Default.BarChart, contentDescription = "Статистика")
+                    }
+                    Box {
+                        IconButton(onClick = { showSortMenu = true }) {
+                            Icon(Icons.Default.Sort, contentDescription = "Сортировка")
+                        }
+                        DropdownMenu(
+                            expanded = showSortMenu,
+                            onDismissRequest = { showSortMenu = false }
+                        ) {
+                            SortType.entries.forEach { type ->
+                                DropdownMenuItem(
+                                    text = { Text(type.label) },
+                                    onClick = {
+                                        viewModel.selectSortType(type)
+                                        showSortMenu = false
+                                    },
+                                    leadingIcon = {
+                                        if (sortType == type) {
+                                            Icon(Icons.Default.Check, contentDescription = null)
+                                        }
+                                    }
+                                )
+                            }
+                        }
                     }
                     IconButton(onClick = { showDatePicker = true }) {
                         Icon(Icons.Default.Event, contentDescription = "Выбрать дату")
@@ -229,9 +256,19 @@ fun AttendanceScreen(viewModel: AttendanceViewModel = viewModel()) {
                 .fillMaxSize()
                 .padding(innerPadding)
         ) { page ->
+            val pageOffset = (
+                (pagerState.currentPage - page) + pagerState.currentPageOffsetFraction
+            ).let { if (it < 0) -it else it }
+
             Column(
                 modifier = Modifier
                     .fillMaxSize()
+                    .graphicsLayer {
+                        // Анимация прозрачности и масштаба при свайпе
+                        alpha = 1f - (pageOffset * 0.5f).coerceIn(0f, 1f)
+                        scaleX = 1f - (pageOffset * 0.1f).coerceIn(0f, 1f)
+                        scaleY = 1f - (pageOffset * 0.1f).coerceIn(0f, 1f)
+                    }
                     .background(MaterialTheme.colorScheme.background)
             ) {
                 // Поле добавления студента (только на текущей странице, чтобы избежать дублирования UI)
@@ -302,15 +339,18 @@ fun AttendanceScreen(viewModel: AttendanceViewModel = viewModel()) {
                     modifier = Modifier
                         .weight(1f)
                         .padding(horizontal = 15.dp),
-                    verticalArrangement = Arrangement.spacedBy(4.dp),
+                    verticalArrangement = Arrangement.spacedBy(2.dp),
                     contentPadding = PaddingValues(bottom = 80.dp)
                 ) {
-                    items(students) { student ->
+                    items(students, key = { it.id }) { student ->
                         StudentItem(
                             student = student,
                             date = selectedDate,
                             onStatusChange = { status -> 
                                 viewModel.updateAttendanceStatus(student.id, selectedDate, status) 
+                            },
+                            onNameChange = { newName ->
+                                viewModel.updateStudentName(student.id, newName)
                             },
                             onDelete = { viewModel.removeStudent(student.id) }
                         )
@@ -547,10 +587,13 @@ fun StudentItem(
     student: Student,
     date: LocalDate,
     onStatusChange: (AttendanceStatus) -> Unit,
+    onNameChange: (String) -> Unit,
     onDelete: () -> Unit
 ) {
     val currentStatus = student.getStatusOn(date)
     var showMenu by remember { mutableStateOf(false) }
+    var isEditing by remember(student.id) { mutableStateOf(false) }
+    var editedName by remember(student.id) { mutableStateOf(student.name) }
 
     Card(
         modifier = Modifier.fillMaxWidth(),
@@ -562,7 +605,7 @@ fun StudentItem(
         ),
         elevation = CardDefaults.cardElevation(defaultElevation = 2.dp)
     ) {
-        Column(modifier = Modifier.padding(8.dp)) {
+        Column(modifier = Modifier.padding(horizontal = 8.dp, vertical = 2.dp)) {
             Row(
                 modifier = Modifier.fillMaxWidth(),
                 verticalAlignment = Alignment.CenterVertically
@@ -578,12 +621,33 @@ fun StudentItem(
                         tint = if (currentStatus == AttendanceStatus.PRESENT) MaterialTheme.colorScheme.primary else Color.Gray
                     )
                 }
-                Text(
-                    text = student.name,
-                    modifier = Modifier.weight(1f),
-                    style = MaterialTheme.typography.bodyLarge,
-                    fontWeight = if (currentStatus == AttendanceStatus.PRESENT) FontWeight.Bold else FontWeight.Normal
-                )
+                
+                if (isEditing) {
+                    OutlinedTextField(
+                        value = editedName,
+                        onValueChange = { editedName = it },
+                        modifier = Modifier.weight(1f).padding(vertical = 4.dp),
+                        singleLine = true,
+                        trailingIcon = {
+                            IconButton(onClick = {
+                                onNameChange(editedName)
+                                isEditing = false
+                            }) {
+                                Icon(Icons.Default.Check, contentDescription = "Сохранить")
+                            }
+                        }
+                    )
+                } else {
+                    Text(
+                        text = student.name,
+                        modifier = Modifier
+                            .weight(1f)
+                            .clickable { isEditing = true },
+                        style = MaterialTheme.typography.bodyLarge,
+                        fontWeight = if (currentStatus == AttendanceStatus.PRESENT) FontWeight.Bold else FontWeight.Normal
+                    )
+                }
+
                 IconButton(onClick = onDelete) {
                     Icon(Icons.Default.DeleteOutline, contentDescription = "Удалить", tint = MaterialTheme.colorScheme.error.copy(alpha = 0.6f))
                 }

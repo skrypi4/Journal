@@ -19,15 +19,31 @@ class AttendanceViewModel(application: Application) : AndroidViewModel(applicati
     private val _currentGroupName = MutableStateFlow("З-24ИВТ(б)")
     val currentGroupName: StateFlow<String> = _currentGroupName.asStateFlow()
 
-    @OptIn(ExperimentalCoroutinesApi::class)
-    val students = _currentGroupName.flatMapLatest { groupName ->
-        dao.getStudentsByGroup(groupName).map { list -> 
-            list.map { it.toDomain() }.sortedBy { it.name } 
-        }
-    }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
+    private val _sortType = MutableStateFlow(SortType.BY_NAME)
+    val sortType: StateFlow<SortType> = _sortType.asStateFlow()
 
     private val _selectedDate = MutableStateFlow(LocalDate.now())
     val selectedDate: StateFlow<LocalDate> = _selectedDate.asStateFlow()
+
+    @OptIn(ExperimentalCoroutinesApi::class)
+    val students = combine(_currentGroupName, _sortType, _selectedDate) { groupName, sortType, date ->
+        Triple(groupName, sortType, date)
+    }.flatMapLatest { (groupName, sortType, date) ->
+        dao.getStudentsByGroup(groupName).map { list -> 
+            val domainList = list.map { it.toDomain() }
+            when (sortType) {
+                SortType.BY_NAME -> domainList.sortedBy { it.name }
+                SortType.BY_PRESENT -> domainList.sortedWith(
+                    compareByDescending<Student> { it.getStatusOn(date) == AttendanceStatus.PRESENT }
+                        .thenBy { it.name }
+                )
+                SortType.BY_ABSENT -> domainList.sortedWith(
+                    compareBy<Student> { it.getStatusOn(date) == AttendanceStatus.PRESENT }
+                        .thenBy { it.name }
+                )
+            }
+        }
+    }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
 
     init {
         viewModelScope.launch {
@@ -50,6 +66,10 @@ class AttendanceViewModel(application: Application) : AndroidViewModel(applicati
 
     fun selectDate(date: LocalDate) {
         _selectedDate.value = date
+    }
+
+    fun selectSortType(type: SortType) {
+        _sortType.value = type
     }
 
     fun selectGroup(name: String) {
@@ -97,6 +117,18 @@ class AttendanceViewModel(application: Application) : AndroidViewModel(applicati
         }
     }
 
+    fun updateStudentName(studentId: Int, newName: String) {
+        if (newName.isBlank()) return
+        val groupName = _currentGroupName.value
+        viewModelScope.launch {
+            val studentList = dao.getStudentsByGroup(groupName).first()
+            val studentEntity = studentList.find { it.id == studentId }
+            studentEntity?.let {
+                dao.updateStudent(it.copy(name = newName))
+            }
+        }
+    }
+
     fun removeStudent(studentId: Int) {
         viewModelScope.launch {
             dao.deleteStudent(studentId)
@@ -106,14 +138,10 @@ class AttendanceViewModel(application: Application) : AndroidViewModel(applicati
     fun getMonthlyStats(groupName: String, month: java.time.Month, year: Int): Map<String, Int> {
         val studentList = if (groupName == _currentGroupName.value) students.value else emptyList()
         
-        // Получаем общее количество рабочих дней (например, пн-пт) в месяце до сегодняшнего дня
-        val today = LocalDate.now()
+        // Считаем общее количество рабочих дней (все кроме воскресений) во всем выбранном месяце
         val daysInMonth = java.time.YearMonth.of(year, month).lengthOfMonth()
-        val totalDaysToCount = (1..daysInMonth).count { day ->
+        val totalDaysInMonth = (1..daysInMonth).count { day ->
             val date = LocalDate.of(year, month, day)
-            // Считаем только прошедшие или сегодняшние дни, исключая выходные (сб, вс)
-            !date.isAfter(today) && 
-            date.dayOfWeek != java.time.DayOfWeek.SATURDAY && 
             date.dayOfWeek != java.time.DayOfWeek.SUNDAY
         }.coerceAtLeast(1) // Чтобы не делить на ноль
         
@@ -121,10 +149,11 @@ class AttendanceViewModel(application: Application) : AndroidViewModel(applicati
             val presentDays = student.attendanceHistory.count { (date, status) ->
                 date.month == month && 
                 date.year == year && 
-                status == AttendanceStatus.PRESENT
+                status == AttendanceStatus.PRESENT &&
+                date.dayOfWeek != java.time.DayOfWeek.SUNDAY
             }
             
-            val percentage = (presentDays * 100) / totalDaysToCount
+            val percentage = (presentDays * 100) / totalDaysInMonth
             student.name to percentage.coerceAtMost(100)
         }
     }
@@ -143,7 +172,7 @@ class AttendanceViewModel(application: Application) : AndroidViewModel(applicati
         
         studentList.forEachIndexed { index, student ->
             val status = student.getStatusOn(date)
-            val statusIcon = if (status == AttendanceStatus.PRESENT) "[+]" else "[-] "
+            val statusIcon = if (status == AttendanceStatus.PRESENT) "(+) " else "(-) "
             val reason = if (status != AttendanceStatus.PRESENT) " (${status.label})" else ""
             sb.append("${index + 1}. $statusIcon ${student.name}$reason\n")
         }
