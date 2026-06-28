@@ -1,0 +1,4 @@
+<resources>
+
+    <style name="Theme.Test_ai" parent="Theme.MaterialComponents.Light" />
+</resources>
