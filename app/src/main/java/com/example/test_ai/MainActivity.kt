@@ -121,6 +121,9 @@ fun AttendanceScreen(viewModel: AttendanceViewModel = viewModel()) {
     var showGroupDialog by remember { mutableStateOf(false) }
     var showAddGroupDialog by remember { mutableStateOf(false) }
     var showEasterEgg by remember { mutableStateOf(false) }
+    var showStatsDialog by remember { mutableStateOf(false) }
+    var statsMonth by remember { mutableIntStateOf(selectedDate.monthValue) }
+    var statsYear by remember { mutableIntStateOf(selectedDate.year) }
     
     val presentCount = students.count { it.getStatusOn(selectedDate) == AttendanceStatus.PRESENT }
     
@@ -157,6 +160,13 @@ fun AttendanceScreen(viewModel: AttendanceViewModel = viewModel()) {
                     }
                 },
                 actions = {
+                    IconButton(onClick = { 
+                        statsMonth = selectedDate.monthValue
+                        statsYear = selectedDate.year
+                        showStatsDialog = true 
+                    }) {
+                        Icon(Icons.Default.BarChart, contentDescription = "Статистика")
+                    }
                     IconButton(onClick = { showDatePicker = true }) {
                         Icon(Icons.Default.Event, contentDescription = "Выбрать дату")
                     }
@@ -393,6 +403,77 @@ fun AttendanceScreen(viewModel: AttendanceViewModel = viewModel()) {
                 confirmButton = {
                     Button(onClick = { showEasterEgg = false }) {
                         Text("Ура!")
+                    }
+                }
+            )
+        }
+
+        if (showStatsDialog) {
+            val stats = viewModel.getMonthlyStats(currentGroupName, java.time.Month.of(statsMonth), statsYear)
+            AlertDialog(
+                onDismissRequest = { showStatsDialog = false },
+                title = { 
+                    Column {
+                        Text("Посещаемость", style = MaterialTheme.typography.titleLarge)
+                        Row(
+                            modifier = Modifier.fillMaxWidth().padding(top = 8.dp),
+                            horizontalArrangement = Arrangement.SpaceBetween,
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            IconButton(onClick = {
+                                if (statsMonth == 1) {
+                                    statsMonth = 12
+                                    statsYear--
+                                } else statsMonth--
+                            }) {
+                                Icon(Icons.Default.ChevronLeft, contentDescription = null)
+                            }
+                            
+                            Text(
+                                text = "${java.time.Month.of(statsMonth).getDisplayName(java.time.format.TextStyle.FULL_STANDALONE, java.util.Locale("ru")).replaceFirstChar { it.uppercase() }} $statsYear",
+                                style = MaterialTheme.typography.titleMedium
+                            )
+                            
+                            IconButton(onClick = {
+                                if (statsMonth == 12) {
+                                    statsMonth = 1
+                                    statsYear++
+                                } else statsMonth++
+                            }) {
+                                Icon(Icons.Default.ChevronRight, contentDescription = null)
+                            }
+                        }
+                    }
+                },
+                text = {
+                    if (stats.isEmpty()) {
+                        Box(modifier = Modifier.fillMaxWidth().height(100.dp), contentAlignment = Alignment.Center) {
+                            Text("Нет данных за этот месяц", style = MaterialTheme.typography.bodyMedium)
+                        }
+                    } else {
+                        LazyColumn(modifier = Modifier.heightIn(max = 400.dp)) {
+                            items(stats.toList()) { (name, percentage) ->
+                                Column(modifier = Modifier.padding(vertical = 4.dp)) {
+                                    Row(
+                                        modifier = Modifier.fillMaxWidth(),
+                                        horizontalArrangement = Arrangement.SpaceBetween
+                                    ) {
+                                        Text(name, style = MaterialTheme.typography.bodyMedium)
+                                        Text("$percentage%", fontWeight = FontWeight.Bold)
+                                    }
+                                    LinearProgressIndicator(
+                                        progress = { percentage / 100f },
+                                        modifier = Modifier.fillMaxWidth().height(4.dp).clip(RoundedCornerShape(2.dp)),
+                                        color = if (percentage > 80) Color(0xFF4CAF50) else if (percentage > 50) Color(0xFFFFC107) else Color(0xFFF44336)
+                                    )
+                                }
+                            }
+                        }
+                    }
+                },
+                confirmButton = {
+                    TextButton(onClick = { showStatsDialog = false }) {
+                        Text("Закрыть")
                     }
                 }
             )

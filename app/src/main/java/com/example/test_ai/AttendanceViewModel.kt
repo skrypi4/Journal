@@ -103,6 +103,32 @@ class AttendanceViewModel(application: Application) : AndroidViewModel(applicati
         }
     }
 
+    fun getMonthlyStats(groupName: String, month: java.time.Month, year: Int): Map<String, Int> {
+        val studentList = if (groupName == _currentGroupName.value) students.value else emptyList()
+        
+        // Получаем общее количество рабочих дней (например, пн-пт) в месяце до сегодняшнего дня
+        val today = LocalDate.now()
+        val daysInMonth = java.time.YearMonth.of(year, month).lengthOfMonth()
+        val totalDaysToCount = (1..daysInMonth).count { day ->
+            val date = LocalDate.of(year, month, day)
+            // Считаем только прошедшие или сегодняшние дни, исключая выходные (сб, вс)
+            !date.isAfter(today) && 
+            date.dayOfWeek != java.time.DayOfWeek.SATURDAY && 
+            date.dayOfWeek != java.time.DayOfWeek.SUNDAY
+        }.coerceAtLeast(1) // Чтобы не делить на ноль
+        
+        return studentList.associate { student ->
+            val presentDays = student.attendanceHistory.count { (date, status) ->
+                date.month == month && 
+                date.year == year && 
+                status == AttendanceStatus.PRESENT
+            }
+            
+            val percentage = (presentDays * 100) / totalDaysToCount
+            student.name to percentage.coerceAtMost(100)
+        }
+    }
+
     fun generateReport(date: LocalDate): String {
         val groupName = _currentGroupName.value
         val studentList = students.value
