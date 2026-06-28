@@ -12,12 +12,11 @@ class AttendanceViewModel : ViewModel() {
     private val _groups = MutableStateFlow<Map<String, List<Student>>>(
         mapOf(
             "З-24ИВТ(б)" to listOf(
-                Student(1, "Скрыпников Никита"),
-                Student(2, "Савченко Екатерина"),
+                Student(1, "Савченко Екатерина"),
+                Student(2, "Скрыпников Никита"),
                 Student(3, "Тимербаев Марат"),
                 Student(4, "Трубалетов Никита")
-
-            )
+            ).sortedBy { it.name }
         )
     )
     val groups: StateFlow<Map<String, List<Student>>> = _groups.asStateFlow()
@@ -72,7 +71,7 @@ class AttendanceViewModel : ViewModel() {
         _groups.update { allGroups ->
             val currentList = allGroups[groupName] ?: emptyList()
             val newId = (allGroups.values.flatten().maxOfOrNull { it.id } ?: 0) + 1
-            val updatedList = currentList + Student(newId, name)
+            val updatedList = (currentList + Student(newId, name)).sortedBy { it.name }
             allGroups + (groupName to updatedList)
         }
     }
