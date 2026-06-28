@@ -113,7 +113,7 @@ fun SplashScreen() {
 fun AttendanceScreen(viewModel: AttendanceViewModel = viewModel()) {
     val groups by viewModel.groups.collectAsState()
     val currentGroupName by viewModel.currentGroupName.collectAsState()
-    val students = groups[currentGroupName] ?: emptyList()
+    val students by viewModel.students.collectAsState()
     val selectedDate by viewModel.selectedDate.collectAsState()
     
     var newStudentName by remember { mutableStateOf("") }
@@ -309,7 +309,7 @@ fun AttendanceScreen(viewModel: AttendanceViewModel = viewModel()) {
                 title = { Text("Выберите группу") },
                 text = {
                     LazyColumn {
-                        items(groups.keys.toList()) { groupName ->
+                        items(groups) { groupName ->
                             Row(
                                 modifier = Modifier
                                     .fillMaxWidth()

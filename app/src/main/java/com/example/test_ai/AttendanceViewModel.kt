@@ -1,31 +1,52 @@
 package com.example.test_ai
 
-import androidx.lifecycle.ViewModel
-import kotlinx.coroutines.flow.MutableStateFlow
-import kotlinx.coroutines.flow.StateFlow
-import kotlinx.coroutines.flow.asStateFlow
-import kotlinx.coroutines.flow.update
+import android.app.Application
+import androidx.lifecycle.AndroidViewModel
+import androidx.lifecycle.viewModelScope
+import kotlinx.coroutines.ExperimentalCoroutinesApi
+import kotlinx.coroutines.flow.*
+import kotlinx.coroutines.launch
 import java.time.LocalDate
 import java.time.format.DateTimeFormatter
 
-class AttendanceViewModel : ViewModel() {
-    private val _groups = MutableStateFlow<Map<String, List<Student>>>(
-        mapOf(
-            "З-24ИВТ(б)" to listOf(
-                Student(1, "Савченко Екатерина"),
-                Student(2, "Скрыпников Никита"),
-                Student(3, "Тимербаев Марат"),
-                Student(4, "Трубалетов Никита")
-            ).sortedBy { it.name }
-        )
-    )
-    val groups: StateFlow<Map<String, List<Student>>> = _groups.asStateFlow()
+class AttendanceViewModel(application: Application) : AndroidViewModel(application) {
+    private val dao = AttendanceDatabase.getDatabase(application).attendanceDao()
+
+    val groups = dao.getAllGroups()
+        .map { list -> list.map { it.name } }
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
 
     private val _currentGroupName = MutableStateFlow("З-24ИВТ(б)")
     val currentGroupName: StateFlow<String> = _currentGroupName.asStateFlow()
 
+    @OptIn(ExperimentalCoroutinesApi::class)
+    val students = _currentGroupName.flatMapLatest { groupName ->
+        dao.getStudentsByGroup(groupName).map { list -> 
+            list.map { it.toDomain() }.sortedBy { it.name } 
+        }
+    }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
+
     private val _selectedDate = MutableStateFlow(LocalDate.now())
     val selectedDate: StateFlow<LocalDate> = _selectedDate.asStateFlow()
+
+    init {
+        viewModelScope.launch {
+            dao.insertGroup(GroupEntity("З-24ИВТ(б)"))
+            // Начальные студенты, если группа пуста
+            val currentStudents = dao.getStudentsByGroup("З-24ИВТ(б)").first()
+            if (currentStudents.isEmpty()) {
+                val initialStudents = listOf(
+                    Student(0, "Савченко Екатерина"),
+                    Student(0, "Скрыпников Никита"),
+                    Student(0, "Тимербаев Марат"),
+                    Student(0, "Трубалетов Никита")
+                )
+                initialStudents.forEach { 
+                    dao.insertStudent(it.toEntity("З-24ИВТ(б)")) 
+                }
+            }
+        }
+    }
 
     fun selectDate(date: LocalDate) {
         _selectedDate.value = date
@@ -36,57 +57,55 @@ class AttendanceViewModel : ViewModel() {
     }
 
     fun addGroup(name: String) {
-        if (name.isBlank() || _groups.value.containsKey(name)) return
-        _groups.update { it + (name to emptyList()) }
-        _currentGroupName.value = name
+        if (name.isBlank()) return
+        viewModelScope.launch {
+            dao.insertGroup(GroupEntity(name))
+            _currentGroupName.value = name
+        }
     }
     
     fun deleteGroup(name: String) {
-        if (_groups.value.size <= 1) return
-        _groups.update { it - name }
-        if (_currentGroupName.value == name) {
-            _currentGroupName.value = _groups.value.keys.first()
+        viewModelScope.launch {
+            dao.deleteGroup(name)
+            dao.deleteStudentsByGroup(name)
+            if (_currentGroupName.value == name) {
+                val allGroups = dao.getAllGroups().first()
+                if (allGroups.isNotEmpty()) {
+                    _currentGroupName.value = allGroups.first().name
+                }
+            }
         }
     }
 
     fun updateAttendanceStatus(studentId: Int, date: LocalDate, status: AttendanceStatus) {
         val groupName = _currentGroupName.value
-        _groups.update { allGroups ->
-            val updatedList = allGroups[groupName]?.map { student ->
-                if (student.id == studentId) {
-                    student.copy(
-                        attendanceHistory = student.attendanceHistory + (date to status)
-                    )
-                } else {
-                    student
-                }
-            } ?: emptyList()
-            allGroups + (groupName to updatedList)
+        viewModelScope.launch {
+            val studentList = dao.getStudentsByGroup(groupName).first()
+            val studentEntity = studentList.find { it.id == studentId }
+            studentEntity?.let {
+                val updatedHistory = it.attendanceHistory + (date to status)
+                dao.updateStudent(it.copy(attendanceHistory = updatedHistory))
+            }
         }
     }
 
     fun addStudent(name: String) {
         if (name.isBlank()) return
         val groupName = _currentGroupName.value
-        _groups.update { allGroups ->
-            val currentList = allGroups[groupName] ?: emptyList()
-            val newId = (allGroups.values.flatten().maxOfOrNull { it.id } ?: 0) + 1
-            val updatedList = (currentList + Student(newId, name)).sortedBy { it.name }
-            allGroups + (groupName to updatedList)
+        viewModelScope.launch {
+            dao.insertStudent(Student(0, name).toEntity(groupName))
         }
     }
 
     fun removeStudent(studentId: Int) {
-        val groupName = _currentGroupName.value
-        _groups.update { allGroups ->
-            val updatedList = allGroups[groupName]?.filter { it.id != studentId } ?: emptyList()
-            allGroups + (groupName to updatedList)
+        viewModelScope.launch {
+            dao.deleteStudent(studentId)
         }
     }
 
     fun generateReport(date: LocalDate): String {
         val groupName = _currentGroupName.value
-        val studentList = _groups.value[groupName] ?: emptyList()
+        val studentList = students.value
         val dateStr = date.format(DateTimeFormatter.ofPattern("dd.MM.yyyy"))
         val presentCount = studentList.count { it.getStatusOn(date) == AttendanceStatus.PRESENT }
         
@@ -98,7 +117,7 @@ class AttendanceViewModel : ViewModel() {
         
         studentList.forEachIndexed { index, student ->
             val status = student.getStatusOn(date)
-            val statusIcon = if (status == AttendanceStatus.PRESENT) "[+]" else "[-]"
+            val statusIcon = if (status == AttendanceStatus.PRESENT) "[+]" else "[-] "
             val reason = if (status != AttendanceStatus.PRESENT) " (${status.label})" else ""
             sb.append("${index + 1}. $statusIcon ${student.name}$reason\n")
         }
