@@ -11,9 +11,12 @@ import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.gestures.Orientation
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.pager.HorizontalPager
+import androidx.compose.foundation.pager.rememberPagerState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
@@ -136,6 +139,29 @@ fun AttendanceScreen(viewModel: AttendanceViewModel = viewModel()) {
     
     val context = LocalContext.current
 
+    val pagerState = rememberPagerState(
+        initialPage = 500, // Центрируем пагинатор
+        pageCount = { 1000 }
+    )
+
+    // Синхронизация даты при свайпе
+    LaunchedEffect(pagerState.currentPage) {
+        val dateOffset = (pagerState.currentPage - 500).toLong()
+        val newDate = LocalDate.now().plusDays(dateOffset)
+        if (newDate != selectedDate) {
+            viewModel.selectDate(newDate)
+        }
+    }
+
+    // Синхронизация страницы при выборе даты через календарь
+    LaunchedEffect(selectedDate) {
+        val today = LocalDate.now()
+        val targetPage = 500 + java.time.temporal.ChronoUnit.DAYS.between(today, selectedDate).toInt()
+        if (pagerState.currentPage != targetPage) {
+            pagerState.scrollToPage(targetPage)
+        }
+    }
+
     Scaffold(
         topBar = {
             CenterAlignedTopAppBar(
@@ -197,98 +223,103 @@ fun AttendanceScreen(viewModel: AttendanceViewModel = viewModel()) {
             }
         }
     ) { innerPadding ->
-        Column(
+        HorizontalPager(
+            state = pagerState,
             modifier = Modifier
-                .padding(innerPadding)
                 .fillMaxSize()
-                .background(MaterialTheme.colorScheme.background)
-        ) {
-            // Поле добавления студента
-            Surface(
-                tonalElevation = 3.dp,
-                shadowElevation = 4.dp,
-                modifier = Modifier.fillMaxWidth(),
-                shape = RoundedCornerShape(bottomStart = 24.dp, bottomEnd = 24.dp)
+                .padding(innerPadding)
+        ) { page ->
+            Column(
+                modifier = Modifier
+                    .fillMaxSize()
+                    .background(MaterialTheme.colorScheme.background)
             ) {
-                Row(
-                    modifier = Modifier
-                        .padding(16.dp)
-                        .fillMaxWidth(),
-                    verticalAlignment = Alignment.CenterVertically
+                // Поле добавления студента (только на текущей странице, чтобы избежать дублирования UI)
+                Surface(
+                    tonalElevation = 3.dp,
+                    shadowElevation = 4.dp,
+                    modifier = Modifier.fillMaxWidth(),
+                    shape = RoundedCornerShape(bottomStart = 24.dp, bottomEnd = 24.dp)
                 ) {
-                    OutlinedTextField(
-                        value = newStudentName,
-                        onValueChange = { newStudentName = it },
-                        placeholder = { Text("ФИО студента") },
-                        modifier = Modifier.weight(1f),
-                        shape = RoundedCornerShape(12.dp),
-                        leadingIcon = { Icon(Icons.Default.PersonAdd, contentDescription = null) },
-                        singleLine = true
-                    )
-                    Spacer(modifier = Modifier.width(12.dp))
-                    Button(
-                        onClick = {
-                            if (newStudentName.isNotBlank()) {
-                                viewModel.addStudent(newStudentName)
-                                newStudentName = ""
-                            }
-                        },
-                        shape = RoundedCornerShape(12.dp),
-                        contentPadding = PaddingValues(12.dp)
+                    Row(
+                        modifier = Modifier
+                            .padding(16.dp)
+                            .fillMaxWidth(),
+                        verticalAlignment = Alignment.CenterVertically
                     ) {
-                        Icon(Icons.Default.Add, contentDescription = "Добавить")
+                        OutlinedTextField(
+                            value = newStudentName,
+                            onValueChange = { newStudentName = it },
+                            placeholder = { Text("ФИО студента") },
+                            modifier = Modifier.weight(1f),
+                            shape = RoundedCornerShape(12.dp),
+                            leadingIcon = { Icon(Icons.Default.PersonAdd, contentDescription = null) },
+                            singleLine = true
+                        )
+                        Spacer(modifier = Modifier.width(12.dp))
+                        Button(
+                            onClick = {
+                                if (newStudentName.isNotBlank()) {
+                                    viewModel.addStudent(newStudentName)
+                                    newStudentName = ""
+                                }
+                            },
+                            shape = RoundedCornerShape(12.dp),
+                            contentPadding = PaddingValues(12.dp)
+                        ) {
+                            Icon(Icons.Default.Add, contentDescription = "Добавить")
+                        }
                     }
                 }
-            }
 
-            // Статистика
-            val presentCount = students.count { it.getStatusOn(selectedDate) == AttendanceStatus.PRESENT }
-            Row(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .padding(16.dp),
-                horizontalArrangement = Arrangement.SpaceBetween,
-                verticalAlignment = Alignment.CenterVertically
-            ) {
-                Text(
-                    text = "Студенты",
-                    style = MaterialTheme.typography.titleLarge,
-                    fontWeight = FontWeight.Bold
-                )
-                Surface(
-                    color = MaterialTheme.colorScheme.secondaryContainer,
-                    shape = RoundedCornerShape(16.dp)
+                // Статистика
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(16.dp),
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                    verticalAlignment = Alignment.CenterVertically
                 ) {
                     Text(
-                        text = "$presentCount / ${students.size}",
-                        modifier = Modifier.padding(horizontal = 12.dp, vertical = 4.dp),
-                        style = MaterialTheme.typography.labelLarge,
-                        color = MaterialTheme.colorScheme.onSecondaryContainer
+                        text = "Студенты",
+                        style = MaterialTheme.typography.titleLarge,
+                        fontWeight = FontWeight.Bold
                     )
+                    Surface(
+                        color = MaterialTheme.colorScheme.secondaryContainer,
+                        shape = RoundedCornerShape(16.dp)
+                    ) {
+                        Text(
+                            text = "$presentCount / ${students.size}",
+                            modifier = Modifier.padding(horizontal = 12.dp, vertical = 4.dp),
+                            style = MaterialTheme.typography.labelLarge,
+                            color = MaterialTheme.colorScheme.onSecondaryContainer
+                        )
+                    }
                 }
-            }
 
-            LazyColumn(
-                modifier = Modifier
-                    .weight(1f)
-                    .padding(horizontal = 15.dp),
-                verticalArrangement = Arrangement.spacedBy(4.dp),
-                contentPadding = PaddingValues(bottom = 80.dp)
-            ) {
-                items(students) { student ->
-                    StudentItem(
-                        student = student,
-                        date = selectedDate,
-                        onStatusChange = { status -> 
-                            viewModel.updateAttendanceStatus(student.id, selectedDate, status) 
-                        },
-                        onDelete = { viewModel.removeStudent(student.id) }
-                    )
+                LazyColumn(
+                    modifier = Modifier
+                        .weight(1f)
+                        .padding(horizontal = 15.dp),
+                    verticalArrangement = Arrangement.spacedBy(4.dp),
+                    contentPadding = PaddingValues(bottom = 80.dp)
+                ) {
+                    items(students) { student ->
+                        StudentItem(
+                            student = student,
+                            date = selectedDate,
+                            onStatusChange = { status -> 
+                                viewModel.updateAttendanceStatus(student.id, selectedDate, status) 
+                            },
+                            onDelete = { viewModel.removeStudent(student.id) }
+                        )
+                    }
                 }
             }
         }
 
-        // Подпись разработчика
+        // Подпись разработчика (вынесена за пределы Pager, чтобы была статичной)
         Box(
             modifier = Modifier
                 .fillMaxSize()
