@@ -19,6 +19,16 @@ class AttendanceViewModel(application: Application) : AndroidViewModel(applicati
     private val _currentGroupName = MutableStateFlow("З-24ИВТ(б)")
     val currentGroupName: StateFlow<String> = _currentGroupName.asStateFlow()
 
+    @OptIn(ExperimentalCoroutinesApi::class)
+    val currentGroupLectureDays = _currentGroupName.flatMapLatest { groupName ->
+        dao.getAllGroups().map { list ->
+            list.find { it.name == groupName }?.lectureDays ?: setOf(
+                java.time.DayOfWeek.MONDAY, java.time.DayOfWeek.TUESDAY, java.time.DayOfWeek.WEDNESDAY,
+                java.time.DayOfWeek.THURSDAY, java.time.DayOfWeek.FRIDAY, java.time.DayOfWeek.SATURDAY
+            )
+        }
+    }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptySet())
+
     private val _sortType = MutableStateFlow(SortType.BY_NAME)
     val sortType: StateFlow<SortType> = _sortType.asStateFlow()
 
@@ -74,6 +84,13 @@ class AttendanceViewModel(application: Application) : AndroidViewModel(applicati
 
     fun selectGroup(name: String) {
         _currentGroupName.value = name
+    }
+
+    fun updateLectureDays(days: Set<java.time.DayOfWeek>) {
+        val groupName = _currentGroupName.value
+        viewModelScope.launch {
+            dao.insertGroup(GroupEntity(groupName, days))
+        }
     }
 
     fun addGroup(name: String) {
@@ -137,12 +154,13 @@ class AttendanceViewModel(application: Application) : AndroidViewModel(applicati
 
     fun getMonthlyStats(groupName: String, month: java.time.Month, year: Int): Map<String, Int> {
         val studentList = if (groupName == _currentGroupName.value) students.value else emptyList()
+        val lectureDays = currentGroupLectureDays.value
         
-        // Считаем общее количество рабочих дней (все кроме воскресений) во всем выбранном месяце
+        // Считаем общее количество лекционных дней в выбранном месяце
         val daysInMonth = java.time.YearMonth.of(year, month).lengthOfMonth()
-        val totalDaysInMonth = (1..daysInMonth).count { day ->
+        val totalLectureDaysInMonth = (1..daysInMonth).count { day ->
             val date = LocalDate.of(year, month, day)
-            date.dayOfWeek != java.time.DayOfWeek.SUNDAY
+            lectureDays.contains(date.dayOfWeek)
         }.coerceAtLeast(1) // Чтобы не делить на ноль
         
         return studentList.associate { student ->
@@ -150,10 +168,10 @@ class AttendanceViewModel(application: Application) : AndroidViewModel(applicati
                 date.month == month && 
                 date.year == year && 
                 status == AttendanceStatus.PRESENT &&
-                date.dayOfWeek != java.time.DayOfWeek.SUNDAY
+                lectureDays.contains(date.dayOfWeek)
             }
             
-            val percentage = (presentDays * 100) / totalDaysInMonth
+            val percentage = (presentDays * 100) / totalLectureDaysInMonth
             student.name to percentage.coerceAtMost(100)
         }
     }

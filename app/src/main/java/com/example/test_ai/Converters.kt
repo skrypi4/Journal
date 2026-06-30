@@ -20,4 +20,16 @@ class Converters {
         val map = gson.fromJson<Map<String, AttendanceStatus>>(value, type) ?: emptyMap()
         return map.mapKeys { LocalDate.parse(it.key) }
     }
+
+    @TypeConverter
+    fun fromDayOfWeekSet(value: Set<java.time.DayOfWeek>): String {
+        return gson.toJson(value.map { it.name })
+    }
+
+    @TypeConverter
+    fun toDayOfWeekSet(value: String): Set<java.time.DayOfWeek> {
+        val type = object : TypeToken<List<String>>() {}.type
+        val list = gson.fromJson<List<String>>(value, type) ?: emptyList()
+        return list.map { java.time.DayOfWeek.valueOf(it) }.toSet()
+    }
 }

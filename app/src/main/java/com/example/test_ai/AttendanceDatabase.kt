@@ -6,7 +6,7 @@ import androidx.room.Room
 import androidx.room.RoomDatabase
 import androidx.room.TypeConverters
 
-@Database(entities = [StudentEntity::class, GroupEntity::class], version = 1, exportSchema = false)
+@Database(entities = [StudentEntity::class, GroupEntity::class], version = 2, exportSchema = false)
 @TypeConverters(Converters::class)
 abstract class AttendanceDatabase : RoomDatabase() {
     abstract fun attendanceDao(): AttendanceDao
@@ -21,7 +21,9 @@ abstract class AttendanceDatabase : RoomDatabase() {
                     context.applicationContext,
                     AttendanceDatabase::class.java,
                     "attendance_database"
-                ).build()
+                )
+                .fallbackToDestructiveMigration()
+                .build()
                 INSTANCE = instance
                 instance
             }

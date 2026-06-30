@@ -120,6 +120,7 @@ fun AttendanceScreen(viewModel: AttendanceViewModel = viewModel()) {
     val students by viewModel.students.collectAsState()
     val selectedDate by viewModel.selectedDate.collectAsState()
     val sortType by viewModel.sortType.collectAsState()
+    val lectureDays by viewModel.currentGroupLectureDays.collectAsState()
     
     var newStudentName by remember { mutableStateOf("") }
     var showDatePicker by remember { mutableStateOf(false) }
@@ -517,26 +518,66 @@ fun AttendanceScreen(viewModel: AttendanceViewModel = viewModel()) {
                     }
                 },
                 text = {
-                    if (stats.isEmpty()) {
-                        Box(modifier = Modifier.fillMaxWidth().height(100.dp), contentAlignment = Alignment.Center) {
-                            Text("Нет данных за этот месяц", style = MaterialTheme.typography.bodyMedium)
-                        }
-                    } else {
-                        LazyColumn(modifier = Modifier.heightIn(max = 400.dp)) {
-                            items(stats.toList()) { (name, percentage) ->
-                                Column(modifier = Modifier.padding(vertical = 4.dp)) {
-                                    Row(
-                                        modifier = Modifier.fillMaxWidth(),
-                                        horizontalArrangement = Arrangement.SpaceBetween
-                                    ) {
-                                        Text(name, style = MaterialTheme.typography.bodyMedium)
-                                        Text("$percentage%", fontWeight = FontWeight.Bold)
-                                    }
-                                    LinearProgressIndicator(
-                                        progress = { percentage / 100f },
-                                        modifier = Modifier.fillMaxWidth().height(4.dp).clip(RoundedCornerShape(2.dp)),
-                                        color = if (percentage > 80) Color(0xFF4CAF50) else if (percentage > 50) Color(0xFFFFC107) else Color(0xFFF44336)
+                    Column {
+                        // Настройка учебных дней
+                        Text(
+                            "Учебные дни недели:",
+                            style = MaterialTheme.typography.labelLarge,
+                            modifier = Modifier.padding(bottom = 8.dp)
+                        )
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            horizontalArrangement = Arrangement.SpaceBetween
+                        ) {
+                            val russianDays = listOf("Пн", "Вт", "Ср", "Чт", "Пт", "Сб", "Вс")
+                            val dayValues = java.time.DayOfWeek.entries
+                            
+                            dayValues.forEachIndexed { index, day ->
+                                val isSelected = lectureDays.contains(day)
+                                Box(
+                                    modifier = Modifier
+                                        .size(36.dp)
+                                        .clip(CircleShape)
+                                        .background(if (isSelected) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.surfaceVariant)
+                                        .clickable {
+                                            val newDays = if (isSelected) lectureDays - day else lectureDays + day
+                                            viewModel.updateLectureDays(newDays)
+                                        },
+                                    contentAlignment = Alignment.Center
+                                ) {
+                                    Text(
+                                        text = russianDays[index],
+                                        color = if (isSelected) Color.White else MaterialTheme.colorScheme.onSurfaceVariant,
+                                        fontSize = 12.sp,
+                                        fontWeight = FontWeight.Bold
                                     )
+                                }
+                            }
+                        }
+                        
+                        HorizontalDivider(modifier = Modifier.padding(vertical = 16.dp))
+
+                        if (stats.isEmpty()) {
+                            Box(modifier = Modifier.fillMaxWidth().height(100.dp), contentAlignment = Alignment.Center) {
+                                Text("Нет данных за этот месяц", style = MaterialTheme.typography.bodyMedium)
+                            }
+                        } else {
+                            LazyColumn(modifier = Modifier.heightIn(max = 300.dp)) {
+                                items(stats.toList()) { (name, percentage) ->
+                                    Column(modifier = Modifier.padding(vertical = 4.dp)) {
+                                        Row(
+                                            modifier = Modifier.fillMaxWidth(),
+                                            horizontalArrangement = Arrangement.SpaceBetween
+                                        ) {
+                                            Text(name, style = MaterialTheme.typography.bodyMedium)
+                                            Text("$percentage%", fontWeight = FontWeight.Bold)
+                                        }
+                                        LinearProgressIndicator(
+                                            progress = { percentage / 100f },
+                                            modifier = Modifier.fillMaxWidth().height(4.dp).clip(RoundedCornerShape(2.dp)),
+                                            color = if (percentage > 80) Color(0xFF4CAF50) else if (percentage > 50) Color(0xFFFFC107) else Color(0xFFF44336)
+                                        )
+                                    }
                                 }
                             }
                         }

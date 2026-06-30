@@ -8,7 +8,7 @@ interface AttendanceDao {
     @Query("SELECT * FROM groups")
     fun getAllGroups(): Flow<List<GroupEntity>>
 
-    @Insert(onConflict = OnConflictStrategy.IGNORE)
+    @Insert(onConflict = OnConflictStrategy.REPLACE)
     suspend fun insertGroup(group: GroupEntity)
 
     @Query("DELETE FROM groups WHERE name = :groupName")
